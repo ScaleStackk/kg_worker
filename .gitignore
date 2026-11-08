@@ -1,0 +1,26 @@
+# Local configuration and credentials
+.env
+.env.local
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Inputs and generated worker output
+data/
+output/
+*.pdf
+knowledge_graph*.json
+raw_extraction*.json
+
+# Exported container images
+*.tar
+
+# Editor and operating-system files
+.DS_Store
+.idea/
+.vscode/
+*.swp

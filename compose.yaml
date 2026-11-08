@@ -1,0 +1,15 @@
+services:
+  kg-worker:
+    build:
+      context: .
+    image: legal-kg-worker:latest
+    environment:
+      KG_MODEL: ${KG_MODEL:-qwen3:4b}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434/api/generate}
+      INPUT_PDF: ${INPUT_PDF:-/data/input.pdf}
+      OUTPUT_JSON: ${OUTPUT_JSON:-/data/knowledge_graph.json}
+      DEBUG_JSON: ${DEBUG_JSON:-/data/raw_extraction.json}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - ./data:/data
