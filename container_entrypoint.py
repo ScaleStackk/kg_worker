@@ -64,6 +64,9 @@ def default_arguments() -> list[str]:
         "OUTPUT_JSON", str(DATA_DIR / "knowledge_graph.json")
     )
     arguments = [str(pdf_path), "--output", output_path]
+    document_id = os.environ.get("DOCUMENT_ID", "").strip()
+    if document_id:
+        arguments.extend(["--document-id", document_id])
     debug_path = os.environ.get("DEBUG_JSON")
     if debug_path:
         arguments.extend(["--debug-output", debug_path])
@@ -80,11 +83,21 @@ def model_is_available(tags: dict, model: str) -> bool:
 
 
 def main() -> None:
+    mode = os.environ.get("WORKER_MODE", "oneshot").strip().lower()
+    if mode not in {"oneshot", "kafka"}:
+        raise ValueError("WORKER_MODE must be 'oneshot' or 'kafka'")
+
     tags = wait_for_ollama()
     model = os.environ.get("KG_MODEL", "qwen3:4b")
     if not model_is_available(tags, model):
         raise RuntimeError(
             f"Model {model!r} is unavailable at the configured Ollama service"
+        )
+
+    if mode == "kafka":
+        os.execv(
+            sys.executable,
+            [sys.executable, "/app/kafka_consumer.py", *sys.argv[1:]],
         )
 
     arguments = sys.argv[1:] or default_arguments()

@@ -12,7 +12,7 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir --requirement requirements.txt
 
-COPY kg_create.py import_neo4j.py container_entrypoint.py ./
+COPY document_identity.py kg_create.py import_neo4j.py kafka_consumer.py container_entrypoint.py ./
 
 WORKDIR /data
 VOLUME ["/data"]
