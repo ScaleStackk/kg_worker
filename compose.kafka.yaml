@@ -1,0 +1,25 @@
+services:
+  kg-worker:
+    restart: unless-stopped
+    environment:
+      WORKER_MODE: kafka
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:19092}
+      KAFKA_UPLOAD_TOPIC: ${KAFKA_UPLOAD_TOPIC:-judgment.uploaded}
+      KAFKA_STATUS_TOPIC: ${KAFKA_STATUS_TOPIC:-processing.status}
+      KAFKA_FAILED_TOPIC: ${KAFKA_FAILED_TOPIC:-processing.failed}
+      KAFKA_CONSUMER_GROUP: ${KAFKA_CONSUMER_GROUP:-questacase-kg-worker-v1}
+      NEO4J_URL: ${NEO4J_URL:-http://neo4j:7474}
+      NEO4J_DATABASE: ${NEO4J_DATABASE:-neo4j}
+      NEO4J_USERNAME: ${NEO4J_USERNAME:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?Set NEO4J_PASSWORD}
+      OLLAMA_URL: ${OLLAMA_URL:-http://inference:11434/api/generate}
+    networks:
+      - questacase
+
+networks:
+  questacase:
+    external: true
+    name: ${DOCKER_NETWORK:-questacase}

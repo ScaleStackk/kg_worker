@@ -1,2 +1,4 @@
 PyMuPDF==1.26.5
 requests==2.32.5
+boto3>=1.35,<2
+kafka-python==3.0.12

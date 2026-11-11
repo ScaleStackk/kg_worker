@@ -21,6 +21,8 @@ from typing import Any
 import pymupdf
 import requests
 
+from document_identity import resolve_document_identity
+
 
 DEFAULT_OLLAMA_URL = os.environ.get(
     "OLLAMA_URL", "http://127.0.0.1:11434/api/generate"
@@ -913,6 +915,7 @@ def create_knowledge_graph(
     model: str,
     ollama_url: str,
     num_ctx: int,
+    document_id: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     pages = extract_pdf(pdf_path)
     if not pages:
@@ -935,11 +938,15 @@ def create_knowledge_graph(
     record, validation = validate_extraction(merged, pages, header)
     nodes, edges = build_graph(record)
 
+    canonical_document_id, content_sha256 = resolve_document_identity(
+        pdf_path, document_id
+    )
     output = {
         "metadata": {
             "schema_version": "2.0",
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "document_id": hashlib.sha256(pdf_path.read_bytes()).hexdigest(),
+            "document_id": canonical_document_id,
+            "content_sha256": content_sha256,
             "source_pdf": pdf_path.name,
             "model": model,
             "page_count": len(pages),
@@ -960,6 +967,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("pdf", help="Path to the judgment PDF")
     parser.add_argument("--output", default="knowledge_graph.json")
     parser.add_argument("--debug-output", help="Optional path for raw model responses")
+    parser.add_argument(
+        "--document-id",
+        help=(
+            "Canonical ID assigned by the upload API. If omitted, the PDF SHA-256 "
+            "is used for backwards-compatible one-file runs."
+        ),
+    )
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--ollama-url", default=DEFAULT_OLLAMA_URL)
     parser.add_argument("--num-ctx", type=int, default=DEFAULT_NUM_CTX)
@@ -977,6 +991,7 @@ def main() -> None:
         model=args.model,
         ollama_url=args.ollama_url,
         num_ctx=args.num_ctx,
+        document_id=args.document_id,
     )
 
     output_path = Path(args.output)

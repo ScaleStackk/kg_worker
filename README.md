@@ -82,3 +82,30 @@ All target instances must match the image architecture (`amd64` or `arm64`).
 For a mixed fleet, publish a multi-platform worker image to ECR.
 
 Scanned PDFs must be OCRed first because the extractor reads embedded PDF text.
+
+## Run as the Kafka ingestion worker
+
+Set `WORKER_MODE=kafka` to consume `judgment.uploaded` events continuously. The
+consumer downloads each PDF from the event's private S3 location, runs the
+existing extractor, imports the resulting graph into Neo4j, and commits the
+Kafka offset only after the import succeeds. It uses the independent consumer
+group `questacase-kg-worker-v1`, so the embedding group receives the same event.
+
+On EC2, S3 credentials come from the instance IAM role through boto3. Do not put
+long-lived AWS access keys in the image. For local S3-compatible storage, set
+`S3_ENDPOINT` and `S3_FORCE_PATH_STYLE=true`.
+
+Start Kafka, Neo4j, and Ollama on the shared `questacase` Docker network, then:
+
+```bash
+docker compose -f compose.yaml -f compose.kafka.yaml up --build
+```
+
+The consumer publishes `started` and `completed` records to `processing.status`.
+After its bounded retries are exhausted, it publishes the error to
+`processing.failed` before committing the poison event.
+
+The `document.documentId` UUID from the upload event is passed to
+`kg_create.py --document-id` and stored as `metadata.document_id`. The PDF hash
+is retained separately as `metadata.content_sha256`. For manual one-file runs,
+omitting `--document-id` preserves the original hash-derived ID behavior.
