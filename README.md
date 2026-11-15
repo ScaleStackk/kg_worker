@@ -82,3 +82,12 @@ All target instances must match the image architecture (`amd64` or `arm64`).
 For a mixed fleet, publish a multi-platform worker image to ECR.
 
 Scanned PDFs must be OCRed first because the extractor reads embedded PDF text.
+
+## Kafka worker mode
+
+The image also includes `/app/queue_worker.py`. It consumes
+`judgment.uploaded` using the `questacase-kg-workers` consumer group, downloads
+the referenced PDF from S3 using the EC2 IAM role, runs extraction, imports the
+validated graph into Neo4j, and publishes completion or failure events. Run it
+by overriding the image entrypoint with `python /app/queue_worker.py` and set
+`KAFKA_BROKERS`, `AWS_REGION`, `NEO4J_URL`, `NEO4J_PASSWORD`, and `OLLAMA_URL`.
