@@ -78,6 +78,11 @@ for example `http://ollama:11434/api/generate`. On AWS, publish the worker image
 to ECR and configure `OLLAMA_URL` through the Pod or task environment. The
 worker and inference containers can then be scaled independently.
 
+`KG_NUM_PREDICT` controls the maximum number of tokens generated for each
+structured extraction response. It defaults to `3000`, which avoids the long
+CPU inference times caused by the previous 6000-token ceiling. Increase it only
+if a large judgment's JSON response is being truncated.
+
 All target instances must match the image architecture (`amd64` or `arm64`).
 For a mixed fleet, publish a multi-platform worker image to ECR.
 

@@ -5,6 +5,7 @@ services:
     image: legal-kg-worker:latest
     environment:
       KG_MODEL: ${KG_MODEL:-qwen3:4b}
+      KG_NUM_PREDICT: ${KG_NUM_PREDICT:-3000}
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434/api/generate}
       INPUT_PDF: ${INPUT_PDF:-/data/input.pdf}
       OUTPUT_JSON: ${OUTPUT_JSON:-/data/knowledge_graph.json}

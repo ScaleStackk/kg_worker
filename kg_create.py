@@ -29,6 +29,7 @@ DEFAULT_MODEL = os.environ.get("KG_MODEL", "qwen3:4b")
 REQUEST_TIMEOUT = int(os.environ.get("KG_REQUEST_TIMEOUT", "900"))
 MAX_BATCH_CHARS = int(os.environ.get("KG_MAX_BATCH_CHARS", "24000"))
 DEFAULT_NUM_CTX = int(os.environ.get("KG_NUM_CTX", "16384"))
+NUM_PREDICT = int(os.environ.get("KG_NUM_PREDICT", "3000"))
 
 TREATMENTS = {
     "CITES",
@@ -406,7 +407,7 @@ def call_ollama(
                     "options": {
                         "temperature": 0,
                         "num_ctx": num_ctx,
-                        "num_predict": 6000,
+                        "num_predict": NUM_PREDICT,
                         "seed": 7,
                     },
                 },

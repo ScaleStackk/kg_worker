@@ -3,6 +3,7 @@
 FROM python:3.12-slim-bookworm
 
 ENV KG_MODEL=qwen3:4b \
+    KG_NUM_PREDICT=3000 \
     OLLAMA_URL=http://host.docker.internal:11434/api/generate \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
