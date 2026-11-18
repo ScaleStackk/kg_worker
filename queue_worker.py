@@ -108,6 +108,8 @@ def main() -> None:
         group_id=group,
         enable_auto_commit=False,
         auto_offset_reset="earliest",
+        max_poll_interval_ms=int(os.environ.get("KAFKA_MAX_POLL_INTERVAL_MS", "21600000")),
+        max_poll_records=1,
         value_deserializer=lambda value: json.loads(value.decode("utf-8")),
     )
     producer = KafkaProducer(

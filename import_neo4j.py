@@ -87,8 +87,32 @@ def main() -> int:
         raise ValueError("NEO4J_PASSWORD is required")
     graph = json.loads(args.graph.read_text(encoding="utf-8"))
     doc_id = document_id(graph)
-    nodes = [properties(node, doc_id) for node in graph.get("nodes", [])]
-    edges = [properties(edge, doc_id) for edge in graph.get("edges", [])]
+    nodes = []
+    node_ids: dict[str, str] = {}
+    for raw_node in graph.get("nodes", []):
+        original_id = str(raw_node.get("id", "")).strip()
+        if not original_id:
+            raise ValueError("Every graph node must have an ID")
+        scoped_id = f"{doc_id}:{original_id}"
+        node_ids[original_id] = scoped_id
+        node = properties(raw_node, doc_id)
+        node["source_graph_id"] = original_id
+        node["id"] = scoped_id
+        nodes.append(node)
+
+    edges = []
+    for raw_edge in graph.get("edges", []):
+        original_id = str(raw_edge.get("id", "")).strip()
+        source_id = str(raw_edge.get("source", "")).strip()
+        target_id = str(raw_edge.get("target", "")).strip()
+        if not original_id or source_id not in node_ids or target_id not in node_ids:
+            raise ValueError("Every graph edge must reference valid node IDs")
+        edge = properties(raw_edge, doc_id)
+        edge["source_graph_id"] = original_id
+        edge["id"] = f"{doc_id}:{original_id}"
+        edge["source"] = node_ids[source_id]
+        edge["target"] = node_ids[target_id]
+        edges.append(edge)
     if not nodes:
         raise ValueError("The graph contains no nodes")
 
@@ -113,6 +137,13 @@ def main() -> int:
         args.timeout,
     )
     statements = [
+        {
+            "statement": (
+                "MATCH (node:GraphNode {document_id: $document_id}) "
+                "DETACH DELETE node"
+            ),
+            "parameters": {"document_id": doc_id},
+        },
         {
             "statement": (
                 "UNWIND $nodes AS item "
