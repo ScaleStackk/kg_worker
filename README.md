@@ -28,6 +28,22 @@ The output contains `metadata`, a query-friendly `case_record`, and `nodes` plus
 `edges` for graph storage. The optional debug file preserves the model response
 before evidence validation.
 
+## Extraction flow
+
+```mermaid
+flowchart LR
+  PDF[Judgment PDF] --> Text[Extract page text]
+  Text --> Batch[Batch complete pages]
+  Batch --> Model[Ollama structured extraction]
+  Model --> Validate[Validate claims against source quotes]
+  Validate --> Graph[Build canonical graph]
+  Graph --> JSON[Graph JSON]
+```
+
+In Kafka mode, the worker downloads the PDF from S3, runs this same pipeline,
+imports the graph into Neo4j, and publishes a status event. The independent
+embedding worker processes the upload separately.
+
 ## Build a transferable image
 
 The supplied build script targets standard x86-64 EC2 instances and exports a
