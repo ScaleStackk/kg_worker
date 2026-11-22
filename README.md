@@ -97,6 +97,16 @@ validated graph into Neo4j, and publishes completion or failure events. Run it
 by overriding the image entrypoint with `python /app/queue_worker.py` and set
 `KAFKA_BROKERS`, `AWS_REGION`, `NEO4J_URL`, `NEO4J_PASSWORD`, and `OLLAMA_URL`.
 
+The worker validates the current Web API event contract (`eventId`, PDF content
+type and size, canonical `documentId`, and S3 bucket/key), verifies the
+downloaded object size before extraction, and commits the Kafka offset only
+after a completion or failure event is published. Existing plaintext Kafka
+deployments remain the default. Secured brokers can additionally set
+`KAFKA_SSL=true`, `KAFKA_SSL_CA_FILE`, `KAFKA_SASL_MECHANISM`,
+`KAFKA_SASL_USERNAME`, and `KAFKA_SASL_PASSWORD`. `WORKER_RETRY_SECONDS` and
+`KAFKA_MAX_POLL_INTERVAL_MS` control retry backoff and the long-running
+extraction poll interval.
+
 ## Tests
 
 Unit tests cover the deterministic parts of the extractor and mock the Ollama
