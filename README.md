@@ -96,3 +96,35 @@ the referenced PDF from S3 using the EC2 IAM role, runs extraction, imports the
 validated graph into Neo4j, and publishes completion or failure events. Run it
 by overriding the image entrypoint with `python /app/queue_worker.py` and set
 `KAFKA_BROKERS`, `AWS_REGION`, `NEO4J_URL`, `NEO4J_PASSWORD`, and `OLLAMA_URL`.
+
+## Tests
+
+Unit tests cover the deterministic parts of the extractor and mock the Ollama
+call, so they run without a model:
+
+```bash
+python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest
+```
+
+## Graph storage across judgments
+
+`import_neo4j.py` connects judgments into one graph:
+
+- CASE, STATUTE, SECTION, JUDGE and COURT nodes are shared. Their id is
+  `shared:<hash of type + canonical key>` and they carry `document_ids`, the
+  judgments that mention them. A cited case is keyed by its reporter or
+  neutral citation when it has one, and every CASE node has `match_keys`
+  (citation keys plus a name key). On import, a CASE node joins the existing
+  node with an overlapping key, so a citation resolves to the cited judgment
+  once that judgment is uploaded, in either upload order. The uploaded
+  judgment's node has `judgment_document_id`. Two uploaded judgments are never
+  merged.
+- FACT, ISSUE, HOLDING, LEGAL_RULE, PROCEDURAL_EVENT, OUTCOME and PARTY nodes
+  and all edges stay scoped to one document (`document_id`).
+- Re-importing a document deletes only its scoped nodes and edges, removes it
+  from shared nodes' `document_ids`, and deletes shared nodes nothing uses.
+
+Data imported before this change is document-scoped; re-import every judgment
+(or start from an empty database) to connect it. Integration tests against a
+throwaway Neo4j are in `tests/test_neo4j_integration.py`.

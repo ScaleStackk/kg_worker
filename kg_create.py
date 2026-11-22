@@ -52,12 +52,24 @@ def object_schema(properties: dict[str, Any], required: list[str]) -> dict[str, 
     }
 
 
+# Length limits are enforced by Ollama's constrained decoding. Without them a
+# small model can start copying page text into one string and never close it,
+# so the response hits num_predict and is invalid JSON; with temperature 0 the
+# retry repeats the same failure. A quote cut at the limit still validates,
+# because find_source_quote matches on word tokens.
+def text(max_length: int) -> dict[str, Any]:
+    return {"type": "string", "maxLength": max_length}
+
+
+def array(items: dict[str, Any], max_items: int = 25) -> dict[str, Any]:
+    return {"type": "array", "items": items, "maxItems": max_items}
+
+
+EVIDENCE = text(400)
+PAGE = {"type": "integer"}
+
 EVIDENCED_TEXT_SCHEMA = object_schema(
-    {
-        "text": {"type": "string"},
-        "evidence": {"type": "string"},
-        "page": {"type": "integer"},
-    },
+    {"text": text(500), "evidence": EVIDENCE, "page": PAGE},
     ["text", "evidence", "page"],
 )
 
@@ -65,17 +77,16 @@ EXTRACTION_SCHEMA = object_schema(
     {
         "case": object_schema(
             {
-                "name": {"type": "string"},
-                "court": {"type": "string"},
-                "date": {"type": "string"},
-                "citations": {"type": "array", "items": {"type": "string"}},
-                "judges": {"type": "array", "items": {"type": "string"}},
-                "author": {"type": "string"},
-                "parties": {
-                    "type": "array",
-                    "items": object_schema(
+                "name": text(300),
+                "court": text(150),
+                "date": text(40),
+                "citations": array(text(120), 10),
+                "judges": array(text(120), 10),
+                "author": text(120),
+                "parties": array(
+                    object_schema(
                         {
-                            "name": {"type": "string"},
+                            "name": text(200),
                             "role": {
                                 "type": "string",
                                 "enum": [
@@ -87,66 +98,65 @@ EXTRACTION_SCHEMA = object_schema(
                                     "OTHER",
                                 ],
                             },
-                            "evidence": {"type": "string"},
-                            "page": {"type": "integer"},
+                            "evidence": EVIDENCE,
+                            "page": PAGE,
                         },
                         ["name", "role", "evidence", "page"],
                     ),
-                },
+                    10,
+                ),
             },
             ["name", "court", "date", "citations", "judges", "author", "parties"],
         ),
-        "issues": {"type": "array", "items": EVIDENCED_TEXT_SCHEMA},
-        "facts": {"type": "array", "items": EVIDENCED_TEXT_SCHEMA},
-        "procedural_history": {
-            "type": "array",
-            "items": object_schema(
+        "issues": array(EVIDENCED_TEXT_SCHEMA),
+        "facts": array(EVIDENCED_TEXT_SCHEMA),
+        "procedural_history": array(
+            object_schema(
                 {
-                    "stage": {"type": "string"},
-                    "decision": {"type": "string"},
-                    "evidence": {"type": "string"},
-                    "page": {"type": "integer"},
+                    "stage": text(200),
+                    "decision": text(500),
+                    "evidence": EVIDENCE,
+                    "page": PAGE,
                 },
                 ["stage", "decision", "evidence", "page"],
-            ),
-        },
-        "holdings": {"type": "array", "items": EVIDENCED_TEXT_SCHEMA},
-        "legal_rules": {"type": "array", "items": EVIDENCED_TEXT_SCHEMA},
-        "cited_cases": {
-            "type": "array",
-            "items": object_schema(
+            )
+        ),
+        "holdings": array(EVIDENCED_TEXT_SCHEMA),
+        "legal_rules": array(EVIDENCED_TEXT_SCHEMA),
+        "cited_cases": array(
+            object_schema(
                 {
-                    "name": {"type": "string"},
-                    "citation": {"type": "string"},
+                    "name": text(300),
+                    "citation": text(120),
                     "treatment": {"type": "string", "enum": sorted(TREATMENTS)},
-                    "proposition": {"type": "string"},
-                    "evidence": {"type": "string"},
-                    "page": {"type": "integer"},
+                    "proposition": text(500),
+                    "evidence": EVIDENCE,
+                    "page": PAGE,
                 },
                 ["name", "citation", "treatment", "proposition", "evidence", "page"],
             ),
-        },
-        "statutes": {
-            "type": "array",
-            "items": object_schema(
+            40,
+        ),
+        "statutes": array(
+            object_schema(
                 {
-                    "name": {"type": "string"},
-                    "sections": {"type": "array", "items": {"type": "string"}},
+                    "name": text(200),
+                    "sections": array(text(60), 20),
                     "treatment": {
                         "type": "string",
                         "enum": sorted(STATUTE_TREATMENTS),
                     },
-                    "evidence": {"type": "string"},
-                    "page": {"type": "integer"},
+                    "evidence": EVIDENCE,
+                    "page": PAGE,
                 },
                 ["name", "sections", "treatment", "evidence", "page"],
-            ),
-        },
+            )
+        ),
         "outcome": object_schema(
             {
-                "disposition": {"type": "string"},
-                "evidence": {"type": "string"},
-                "page": {"type": "integer"},
+                "disposition": text(400),
+                "evidence": EVIDENCE,
+                "page": PAGE,
             },
             ["disposition", "evidence", "page"],
         ),
@@ -183,15 +193,52 @@ def display_party_name(value: str) -> str:
     return name
 
 
+SIGNATURE_LINE = re.compile(
+    r"^(?:Signature Not Verified|Digitally signed by|Reason:|"
+    r"Date:\s*\d{4}\.\d{2}\.\d{2}(?:\s+\d{2}:\d{2}:\d{2}\s*IST)?(?:\s+Reason:)?|"
+    r"\d{2}:\d{2}:\d{2}\s*IST(?:\s+Reason:)?)$",
+    re.I,
+)
+SIGNATURE_INLINE = re.compile(
+    r"\s*(?:Signature Not Verified|Digitally signed by|"
+    r"Date:\s*\d{4}\.\d{2}\.\d{2}(?:\s+\d{2}:\d{2}:\d{2}\s*IST)?|"
+    r"\d{2}:\d{2}:\d{2}\s*IST)(?:\s+Reason:)?",
+    re.I,
+)
+SIGNER_NAME = re.compile(r"^[A-Z][A-Z .]{1,40}$")
+
+
+def strip_signature_lines(lines: list[str]) -> list[str]:
+    """Drop the digital-signature stamp the Supreme Court PDFs carry on page 1.
+
+    The stamp is "Signature Not Verified / Digitally signed by / NAME /
+    Date: 2025.04.04 / 16:28:38 IST / Reason:"; PyMuPDF often interleaves it
+    with judgment text, so whole stamp lines are removed and inline fragments
+    are cut out of the remaining lines.
+    """
+    result: list[str] = []
+    after_signed_by = False
+    for line in lines:
+        if after_signed_by and SIGNER_NAME.match(line):
+            after_signed_by = False
+            continue
+        after_signed_by = line.casefold() == "digitally signed by"
+        if SIGNATURE_LINE.match(line):
+            continue
+        line = normalize_space(SIGNATURE_INLINE.sub("", line))
+        if line:
+            result.append(line)
+    return result
+
+
 def clean_page_text(raw_text: str) -> str:
     """Remove source-site furniture while retaining judgment wording."""
     lines = [normalize_space(line) for line in raw_text.splitlines()]
+    lines = strip_signature_lines([line for line in lines if line])
     cleaned: list[str] = []
     skip_previous_footer = False
 
     for line in lines:
-        if not line:
-            continue
         if line.startswith("Indian Kanoon - http"):
             if cleaned and " vs " in cleaned[-1] and " on " in cleaned[-1]:
                 cleaned.pop()
@@ -219,12 +266,272 @@ def extract_pdf(pdf_path: Path) -> list[dict[str, Any]]:
     return pages
 
 
+MAX_SOURCE_TITLE = 300
+MONTHS = (
+    "January|February|March|April|May|June|July|August|September|October|"
+    "November|December"
+)
+TITLE_LINE = re.compile(
+    rf"^(?P<title>.{{3,{MAX_SOURCE_TITLE}}}?)\s+on\s+"
+    rf"(?P<date>\d{{1,2}}\s+(?:{MONTHS}),?\s+\d{{4}})",
+    re.S,
+)
+NEUTRAL_CITATION = re.compile(r"\b(?:19|20)\d{2}\s+INSC\s+\d+\b")
+COURT_HEADING = re.compile(
+    r"^\s*(?:\d{4}\s+INSC\s+\d+\s+)?(?:IN\s+(?:THE\s+)?)?"
+    r"(SUPREME\s+COURT\s+OF\s+INDIA|HIGH\s+COURT\s+OF\s+[A-Z][A-Z &,.]+?)"
+    r"(?:\s+AT\s+[A-Z ]+?)?\s*$",
+    re.I | re.M,
+)
+VERSUS_LINE = re.compile(r"^[-−–\s]*(?:versus|vs?\.?)[-−–\s]*$", re.I)
+BLOCK_END_LINE = re.compile(
+    r"^(?:J\s*U\s*D\s*G\s*E?\s*M\s*E\s*N\s*T|O\s*R\s*D\s*E\s*R|WITH|AND|"
+    r"COMMON\s+JUDGMENT|INDEX|Signature Not Verified)\b",
+    re.I,
+)
+BLOCK_START_LINE = re.compile(
+    r"JURISDICTION|\bNOS?\b\.?|\bNO\s*\(S\)|ARISING|DIARY|\bOF\s+(?:19|20)\d{2}\b|"
+    r"^IN\s+THE\s+(?:SUPREME|HIGH)\s+COURT|REPORTABLE",
+    re.I,
+)
+CASE_NUMBER = re.compile(
+    r"\bNOS?\s*(?:\(\s*S\s*\))?\s*\.?\s*[\d\s,\-–−/]+"
+    r"(?:\s*\bO(?:F)?\b\s*\d{0,4})?\s*[)\]]?",
+    re.I,
+)
+ROLES = {
+    "APPELLANT": "APPELLANT",
+    "PETITIONER": "PETITIONER",
+    "APPLICANT": "PETITIONER",
+    "RESPONDENT": "RESPONDENT",
+}
+ROLE_TOKEN = re.compile(
+    r"(?P<lead>(?:\.{2,}|…)[.…]*)?\s*\b(?P<word>[A-Za-z]+)(?![A-Za-z0-9])"
+    r"(?:\s*\(\s*s?\s*\)?)?(?:\s*/)?[.…]*",
+    re.I,
+)
+PARTY_TAIL = re.compile(
+    r"(?:\s*(?:,|&|\band\b)\s*(?:ANR|ANOTHER|ORS|OTHERS|OTHER)\.?|\s+ETC\.?)+\s*$",
+    re.I,
+)
+SIGNATURE_JUDGE = re.compile(
+    r"(?:[.…]\s*){3,}J\s*\.?\s*[(\[]\s*(?P<name>[^)\]]{3,80}?)\s*[)\]]"
+)
+OPENING_JUDGE = re.compile(r"^(?P<name>[A-Z][A-Za-z.' ]{1,60}?)\s*,\s*J\s*\.?\s*:?$")
+
+
+def role_label(text: str) -> tuple[str, str] | None:
+    """Split a (possibly truncated) role label out of a party block side.
+
+    Indian Kanoon wraps the right-hand column, so labels arrive as
+    "...APPELLANT(S)", "…RESPON", "APPELLANT(s)", ".....PETI", "… A", or in the
+    middle of a wrapped name ("CUDDALORE POWERGEN …APPELLANT(S) CORPORATION").
+    """
+    found = None
+    for match in ROLE_TOKEN.finditer(text):
+        word = match.group("word").upper()
+        if word in {"PETITION", "PETITIONS"}:
+            continue
+        dotted = bool(match.group("lead"))
+        at_end = not text[match.end() :].strip()
+        for full, role in ROLES.items():
+            if word in (full, full + "S") or (
+                full.startswith(word) and (dotted or (at_end and len(word) >= 4))
+            ):
+                found = (match, role)
+                break
+    if not found:
+        return None
+    match, role = found
+    name = normalize_space(f"{text[: match.start()]} {text[match.end():]}")
+    return name, role
+
+
+def clean_party_name(value: str) -> str:
+    # Remove any further labels ("...APPLICANT(S)/PETITIONER(S)").
+    while (labelled := role_label(value)) and labelled[0] != value:
+        value = labelled[0]
+    # Enumerated parties ("A1: X A2: Y"): keep the lead name.
+    enumerated = re.split(r"\s*\b[ARP]\d+\s*:\s*", value)
+    value = next((part for part in enumerated if part.strip()), value)
+    value = re.sub(r"^[\d/\s-]+(?=[A-Za-z])", "", value)
+    value = normalize_space(value).strip(" .,:;-…")
+    return normalize_space(PARTY_TAIL.sub("", value)).strip(" .,:;-…")
+
+
+def parse_party_block(lines: list[str], appellate: bool) -> list[dict[str, Any]]:
+    """Parse the first "PARTY ...ROLE / VERSUS / PARTY ...ROLE" block."""
+    versus = next((index for index, line in enumerate(lines) if VERSUS_LINE.match(line)), None)
+    if versus is None:
+        return []
+
+    left: list[str] = []
+    for line in reversed(lines[max(0, versus - 6) : versus]):
+        if BLOCK_START_LINE.search(line):
+            # "(@ SLP (C) NO. 27632 OF 2024) ANMOL APPELLANT(s)": keep the tail.
+            number = CASE_NUMBER.search(line)
+            tail = line[number.end() :].strip() if number else ""
+            if tail and role_label(tail):
+                left.insert(0, tail)
+            break
+        left.insert(0, line)
+
+    right: list[str] = []
+    for line in lines[versus + 1 : versus + 7]:
+        if BLOCK_END_LINE.match(line) or OPENING_JUDGE.match(line) or re.match(r"^\d+\.\s", line):
+            break
+        right.append(line)
+        if role_label(line):
+            break
+
+    parties = []
+    defaults = ["APPELLANT" if appellate else "PETITIONER", "RESPONDENT"]
+    for side, default_role in zip([left, right], defaults):
+        evidence = normalize_space(" ".join(side))
+        labelled = role_label(evidence)
+        name, role = labelled if labelled else (evidence, default_role)
+        name = clean_party_name(name)
+        if 2 <= len(name) <= 200:
+            parties.append(
+                {
+                    "name": display_party_name(name),
+                    "role": role,
+                    "evidence": evidence,
+                    "page": 1,
+                }
+            )
+    return parties if len(parties) == 2 else []
+
+
+def judge_display_name(value: str) -> str:
+    value = normalize_space(value)
+    tokens = value.split()
+    if len(tokens) > 3 and all(len(token) == 1 for token in tokens):
+        # Letter-spaced signatures: "P A M I D I G H A N T A M S R I ..." can't be
+        # split back into words reliably, so keep it as one word.
+        value = "".join(tokens)
+    value = re.sub(r"\s*\.\s*", ". ", value).replace(". ", ".").strip()
+    value = re.sub(r"\.(?=[A-Za-z]{2,})", ". ", value)
+    return normalize_space(value.title())
+
+
+def signature_judges(pages: list[dict[str, Any]]) -> list[str]:
+    """Judges named in the closing "....J. (NAME)" signature block."""
+    for page in reversed(pages[-2:]):
+        names = [
+            judge_display_name(match.group("name"))
+            for match in SIGNATURE_JUDGE.finditer(page["text"])
+        ]
+        if names:
+            return list(dict.fromkeys(names))
+    return []
+
+
+def resolve_judge_names(names: list[str], known: list[str]) -> list[str]:
+    """Replace letter-spaced signature names ("Vikramnath") with a known spelling."""
+    def compact(name: str) -> str:
+        return normalize_key(name).replace(" ", "")
+
+    spellings = {compact(name): name for name in known if name}
+    resolved: dict[str, str] = {}
+    for name in names:
+        resolved.setdefault(compact(name), spellings.get(compact(name), name))
+    return list(resolved.values())
+
+
+def surname_key(name: str) -> str:
+    tokens = normalize_key(name).split()
+    return tokens[-1] if tokens else ""
+
+
+def opening_author(lines: list[str], judges: list[str]) -> str:
+    """Author from the opening "<NAME>, J." line, matched to the bench."""
+    for line in lines[:60]:
+        match = OPENING_JUDGE.match(line)
+        if not match:
+            continue
+        name = judge_display_name(match.group("name"))
+        for judge in judges:
+            if surname_key(judge) == surname_key(name):
+                return judge
+        return name
+    return ""
+
+
+def parse_modern_header(pages: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Parse the 2020s Indian Kanoon layout: "X vs Y on 10 February, 2025"."""
+    first_raw = pages[0]["raw_text"]
+    if re.search(r"Equivalent citations:|^\s*PETITIONER:", first_raw, re.I | re.M):
+        return None
+    lines = strip_signature_lines(
+        [normalize_space(line) for line in first_raw.splitlines() if line.strip()]
+    )
+    title_match = TITLE_LINE.match(normalize_space(" ".join(lines[:4])))
+    if not title_match:
+        return None
+
+    title = title_match.group("title")
+    raw_date = title_match.group("date").replace(",", "")
+    judgment_date = datetime.strptime(raw_date, "%d %B %Y").date().isoformat()
+    source_title = f"{title} on {title_match.group('date')}"
+
+    header_text = "\n".join(lines[:40])
+    citations = list(
+        dict.fromkeys(normalize_space(c) for c in NEUTRAL_CITATION.findall(header_text))
+    )
+
+    court = ""
+    court_match = COURT_HEADING.search(header_text)
+    if court_match:
+        heading = normalize_space(court_match.group(1)).title()
+        court = re.sub(r"\b(Of|And)\b", lambda m: m.group(1).lower(), heading)
+
+    author_match = re.search(r"^Author:\s*(.+)$", header_text, re.M)
+    header_author = judge_display_name(author_match.group(1)) if author_match else ""
+    bench_match = re.search(r"^Bench:\s*(.+)$", header_text, re.M)
+    header_judges = (
+        [judge_display_name(name) for name in bench_match.group(1).split(",")]
+        if bench_match
+        else []
+    )
+
+    signed = resolve_judge_names(signature_judges(pages), header_judges + [header_author])
+    judges = signed or header_judges
+    body_author = opening_author(lines, judges)
+    author = body_author or header_author
+
+    appellate = "APPELLATE JURISDICTION" in header_text.upper()
+    parties = parse_party_block(lines[:60], appellate)
+    name = (
+        f"{parties[0]['name']} v. {parties[1]['name']}"
+        if len(parties) == 2
+        else re.sub(r"\s+vs\.?\s+", " v. ", title)
+    )
+
+    return {
+        "name": name,
+        "source_title": source_title,
+        "court": court,
+        "date": judgment_date,
+        "citations": citations,
+        "judges": judges,
+        "author": author,
+        "parties": parties,
+        "header_judges": header_judges,
+        "header_author": header_author,
+    }
+
+
 def parse_header_metadata(pages: list[dict[str, Any]]) -> dict[str, Any]:
+    modern = parse_modern_header(pages)
+    if modern:
+        return modern
+
     first_raw = pages[0]["raw_text"]
     first_text = pages[0]["text"]
 
     title_part = re.split(r"Equivalent citations:", first_raw, maxsplit=1)[0]
-    source_title = normalize_space(title_part)
+    source_title = normalize_space(title_part)[:MAX_SOURCE_TITLE]
 
     equivalent = re.search(r"Equivalent citations:\s*([^\n]+)", first_raw, re.I)
     citations = []
@@ -289,7 +596,12 @@ def parse_header_metadata(pages: list[dict[str, Any]]) -> dict[str, Any]:
                 }
             )
 
-    title = source_title
+    # Never fall back to raw page text as a case name; an unparsed name is
+    # filled from the model or the file name later.
+    title = ""
+    title_match = TITLE_LINE.match(source_title)
+    if title_match:
+        title = re.sub(r"\s+vs\.?\s+", " v. ", title_match.group("title"))
     if len(parties) == 2:
         title = f"{parties[0]['name']} v. {parties[1]['name']}"
 
@@ -355,7 +667,7 @@ def extraction_prompt(
 Extract a precise, useful legal case record from the Indian judgment text below.
 This is batch {batch_number} of {batch_count}. The complete-document identity is:
 
-CURRENT CASE: {header['name']}
+CURRENT CASE: {header['name'] or 'not parsed'}
 KNOWN COURT: {header['court'] or 'not parsed'}
 KNOWN CITATIONS: {', '.join(header['citations']) or 'not parsed'}
 
@@ -512,7 +824,11 @@ def find_source_quote(
             source_tokens = [match.group(0) for match in matches]
             width = len(quote_tokens)
             for start in range(0, len(source_tokens) - width + 1):
-                if source_tokens[start : start + width] == quote_tokens:
+                # The last word may be cut short by the schema's maxLength.
+                if (
+                    source_tokens[start : start + width - 1] == quote_tokens[:-1]
+                    and source_tokens[start + width - 1].startswith(quote_tokens[-1])
+                ):
                     first, last = matches[start], matches[start + width - 1]
                     return source[first.start() : last.end()], page["page"]
 
@@ -590,55 +906,194 @@ def citation_is_near_case(
     return False
 
 
-def refine_case_treatment(case_name: str, pages: list[dict[str, Any]]) -> str | None:
-    """Use explicit judicial language to refine small-model citation treatment."""
-    generic = {
-        "commissioner",
-        "income",
-        "company",
-        "bombay",
-        "bengal",
-        "kerala",
-        "south",
-    }
-    distinctive = [
-        token
-        for token in normalize_key(case_name).split()
-        if len(token) >= 7 and token not in generic
-    ]
-    full_text = " ".join(page["text"] for page in pages)
-    full_key = normalize_key(full_text)
-    positions = sorted(
-        {
-            match.start()
-            for token in distinctive
-            for match in re.finditer(rf"\b{re.escape(token)}\b", full_key)
-        }
-    )
-    if not positions:
-        return None
-    contexts = [full_key[max(0, position - 200) : position + 2400] for position in positions]
-    if any(
-        phrase in context
-        for context in contexts
-        for phrase in [
-            "question was apparently left open",
-            "question does not arise",
-            "did not relate to",
+SENTENCE_ABBREVIATIONS = {
+    "v", "vs", "ltd", "no", "nos", "s", "ss", "sec", "secs", "co", "pvt", "dr", "mr",
+    "mrs", "ms", "j", "jj", "cji", "ie", "eg", "viz", "etc", "art", "arts", "cl",
+    "para", "paras", "p", "pp", "vol", "cf", "cr", "crl", "civ", "govt", "ors", "anr",
+    "smt", "sri", "shri", "hon", "ble", "corpn", "supp", "sc", "scc", "air", "ibid",
+}
+SENTENCE_END = re.compile(r"[.?!][\"”’')\]]*\s+(?=[A-Z0-9“\"‘'(\[])")
+
+
+def split_sentences(text: str) -> list[tuple[int, int]]:
+    """(start, end) spans of sentences, not splitting after legal abbreviations."""
+    spans: list[tuple[int, int]] = []
+    start = 0
+    for match in SENTENCE_END.finditer(text):
+        before = re.search(r"([A-Za-z]+)\W*$", text[start : match.start() + 1])
+        word = before.group(1).casefold() if before else ""
+        if len(word) == 1 or word in SENTENCE_ABBREVIATIONS:
+            continue
+        spans.append((start, match.end()))
+        start = match.end()
+    if start < len(text):
+        spans.append((start, len(text)))
+    return spans
+
+
+GENERIC_NAME_WORDS = {
+    "state", "states", "union", "india", "government", "commissioner", "income",
+    "tax", "limited", "company", "private", "corporation", "bank", "insurance",
+    "others", "another", "director", "officer", "secretary", "general", "district",
+    "collector", "municipal", "authority", "board", "national", "central", "through",
+    "maharashtra", "rajasthan", "pradesh", "uttar", "madhya", "andhra", "himachal",
+    "arunachal", "karnataka", "kerala", "tamil", "nadu", "gujarat", "punjab",
+    "haryana", "bihar", "odisha", "orissa", "bengal", "west", "assam", "telangana",
+    "jharkhand", "chhattisgarh", "uttarakhand", "delhi", "bombay", "madras",
+    "calcutta", "kolkata", "chennai", "mumbai", "goa", "jammu", "kashmir", "police",
+    "inspector", "manager", "managing", "chief", "deputy", "assistant", "appellant",
+    "respondent", "petitioner", "anr", "ors", "kumar", "singh", "devi", "prasad",
+    "sharma", "gupta", "yadav", "khan", "mohd", "mohammad", "shri", "sons",
+    "association", "society", "trust", "industries", "enterprises", "supra",
+}
+
+
+def distinctive_tokens(case_name: str) -> list[list[str]]:
+    """Distinctive words of each side of "X v. Y", for locating mentions."""
+    sides = re.split(r"\s+(?:v|vs|versus)\.?\s+", case_name, flags=re.I)
+    result = []
+    for side in sides:
+        tokens = [
+            token
+            for token in normalize_key(side).split()
+            if len(token) >= 4 and token not in GENERIC_NAME_WORDS
         ]
-    ):
-        return "DISTINGUISHES"
-    if any(
-        "test laid down" in context and "according to that test" in context
-        for context in contexts
-    ):
-        return "APPLIES"
-    if any(
-        phrase in context
-        for context in contexts
-        for phrase in ["said that", "this is what was observed"]
-    ):
-        return "RELIES_ON"
+        if tokens:
+            result.append(tokens)
+    return result
+
+
+# A following sentence that names another authority is about that authority.
+OTHER_AUTHORITY = re.compile(
+    r"\(supra\)|\s(?:v|vs)\.?\s|\b(?:SCC|INSC|SCR|AIR)\b|"
+    r"\b(?:other|another|later|subsequent|earlier)\s+(?:decision|judgment|case)s?\b",
+    re.I,
+)
+
+
+def mention_contexts(cited: dict[str, Any], pages: list[dict[str, Any]]) -> list[str]:
+    """The sentences that cite a case, each joined with the sentence after it.
+
+    A mention is the validated evidence quote, the citation string, or a
+    sentence containing a distinctive word of the lead party (judgments refer
+    back to a case as "Taherakhatoon (supra)").
+    """
+    sides = distinctive_tokens(str(cited.get("name", "")))[:1]
+    citation = normalize_space(str(cited.get("citation", ""))).casefold()
+    evidence = normalize_space(str(cited.get("evidence", ""))).casefold()
+    contexts: list[str] = []
+    for page in pages:
+        text = page["text"]
+        spans = split_sentences(text)
+        for index, (start, end) in enumerate(spans):
+            sentence = text[start:end]
+            folded = sentence.casefold()
+            words = set(normalize_key(sentence).split())
+            hit = (
+                (evidence and len(evidence) >= 8 and evidence in folded)
+                or (citation and len(citation) >= 6 and citation in folded)
+                or (sides and all(any(token in words for token in side) for side in sides))
+            )
+            if not hit:
+                continue
+            following = text[spans[index + 1][0] : spans[index + 1][1]] if index + 1 < len(spans) else ""
+            if OTHER_AUTHORITY.search(following):
+                following = ""
+            contexts.append(normalize_space(f"{sentence} {following}"))
+    return list(dict.fromkeys(contexts))
+
+
+NEGATION_BEFORE = re.compile(r"\b(?:not|never|cannot|can't|no|nor|neither)\b(?:\W+\w+){0,3}\W*$")
+COUNSEL_VOICE = re.compile(
+    r"\b(?:learned\s+(?:senior\s+)?counsel|counsel\s+(?:for|appearing)|"
+    r"(?:it\s+(?:is|was)\s+)?(?:submitted|contended|argued|urged|canvassed)|"
+    r"on\s+behalf\s+of\s+the\s+(?:appellant|respondent|petitioner|state)s?|"
+    r"relied\s+(?:up)?on\s+by\s+the\s+(?:appellant|respondent|petitioner)s?|"
+    r"(?:appellant|respondent|petitioner)s?\s+(?:has|have|had)\s+relied)\b",
+    re.I,
+)
+TREATMENT_CUES: list[tuple[str, re.Pattern[str]]] = [
+    (
+        "OVERRULES",
+        re.compile(
+            r"\b(?:(?:is|are|stands?|be|hereby)\s+(?:hereby\s+)?overruled|we\s+overrule|"
+            r"(?:does|do|did)\s+not\s+lay\s+down\s+(?:the\s+)?(?:correct|good)\s+law|"
+            r"(?:is|are)\s+no\s+longer\s+good\s+law|(?:is|are)\s+not\s+good\s+law)\b",
+            re.I,
+        ),
+    ),
+    (
+        "DISTINGUISHES",
+        re.compile(
+            r"\b(?:distinguishable|(?:is|are|was|were|be)\s+(?:clearly\s+)?distinguished|"
+            r"(?:does|do|would)\s+not\s+(?:apply|help|assist|come\s+to\s+the\s+(?:aid|rescue))|"
+            r"(?:has|have)\s+no\s+(?:application|applicability)|"
+            r"(?:not|in)applicable\s+to\s+the\s+(?:facts|present\s+case)|"
+            r"facts\s+(?:of|in)\s+(?:that|the\s+said|those)\s+cases?\s+(?:are|were)\s+"
+            r"(?:entirely\s+|completely\s+|clearly\s+|quite\s+)?(?:different|distinct))\b",
+            re.I,
+        ),
+    ),
+    (
+        "FOLLOWS",
+        re.compile(
+            r"\b(?:we\s+(?:are\s+)?(?:respectfully\s+)?(?:agree|follow|concur)|"
+            r"(?:we|this\s+court)\s+(?:have|has|had)\s+(?:consistently\s+)?followed|"
+            r"(?:is|are)\s+squarely\s+(?:applicable|covered)|squarely\s+covers|"
+            r"(?:is|are)\s+(?:fully\s+)?covered\s+by\s+(?:the\s+)?(?:decision|judgment)|"
+            r"(?:is|are)\s+binding\s+on\s+us)\b",
+            re.I,
+        ),
+    ),
+    (
+        "APPLIES",
+        re.compile(
+            r"\b(?:applying\s+the\s+(?:test|principles?|ratio|law)|"
+            r"(?:test|principles?|ratio)\s+(?:laid\s+down|enunciated|propounded)\s+.{0,80}?"
+            r"(?:applies|apply|applied|is\s+attracted))\b",
+            re.I,
+        ),
+    ),
+    (
+        "RELIES_ON",
+        re.compile(
+            r"\b(?:(?:we|this\s+court)\s+(?:may\s+|would\s+)?(?:also\s+)?(?:rely|relied|place\s+reliance)|"
+            r"(?:we|this\s+court)\s+(?:have|has|had)\s+(?:also\s+)?(?:relied|placed\s+reliance)|"
+            r"(?:reliance|support)\s+(?:is|can\s+be|may\s+be)\s+(?:placed|drawn|derived|found)|"
+            r"(?:fortified|supported)\s+by\s+(?:the\s+)?(?:decision|judgment|view))\b",
+            re.I,
+        ),
+    ),
+]
+UPGRADES = {"RELIES_ON", "APPLIES", "FOLLOWS"}
+
+
+def cue_fires(pattern: re.Pattern[str], context: str) -> bool:
+    for match in pattern.finditer(context):
+        if not NEGATION_BEFORE.search(context[: match.start()]):
+            return True
+    return False
+
+
+def refine_case_treatment(
+    cited: dict[str, Any], pages: list[dict[str, Any]]
+) -> str | None:
+    """Treatment implied by explicit judicial language around the citation.
+
+    Returns None unless a cue fires in a sentence that cites the case (or the
+    sentence after it). Sentences that report counsel's argument never
+    upgrade the treatment; when every mention is counsel's, a model label of
+    RELIES_ON/APPLIES/FOLLOWS is lowered to REFERRED_TO.
+    """
+    contexts = mention_contexts(cited, pages)
+    if not contexts:
+        return None
+    judicial = [context for context in contexts if not COUNSEL_VOICE.search(context)]
+    for treatment, pattern in TREATMENT_CUES:
+        if any(cue_fires(pattern, context) for context in judicial):
+            return treatment
+    if not judicial and cited.get("treatment") in UPGRADES:
+        return "REFERRED_TO"
     return None
 
 
@@ -661,7 +1116,15 @@ def validate_extraction(
         "judges": list(dict.fromkeys(header["judges"] + case.get("judges", []))),
         "author": header["author"] or normalize_space(str(case.get("author", ""))),
         "parties": list(header["parties"]),
+        # Indian Kanoon's Author/Bench lines, kept when they disagree with the
+        # judgment body (signature block and opening "<NAME>, J." line).
+        "header_author": "",
+        "header_judges": [],
     }
+    if header.get("header_author", "") != validated["case"]["author"]:
+        validated["case"]["header_author"] = header.get("header_author", "")
+    if set(header.get("header_judges", [])) != set(validated["case"]["judges"]):
+        validated["case"]["header_judges"] = header.get("header_judges", [])
     stats["accepted_assertions"] += len(header["parties"])
 
     def validate_items(field: str, text_field: str) -> None:
@@ -705,9 +1168,12 @@ def validate_extraction(
         citation = normalize_space(str(cited.get("citation", "")))
         if citation and not citation_is_near_case(cited["name"], citation, pages):
             cited["citation"] = ""
-        refined = refine_case_treatment(cited["name"], pages)
-        if refined:
+        refined = refine_case_treatment(cited, pages)
+        cited["treatment_source"] = "llm"
+        if refined and refined != cited.get("treatment"):
+            cited["llm_treatment"] = cited.get("treatment", "")
             cited["treatment"] = refined
+            cited["treatment_source"] = "rule"
 
     outcome = extraction.get("outcome", {})
     if outcome.get("disposition"):
@@ -739,6 +1205,198 @@ def validate_extraction(
     return validated, stats
 
 
+STATUTE_ALIASES = {
+    "ipc": "indian penal code 1860",
+    "i p c": "indian penal code 1860",
+    "penal code": "indian penal code 1860",
+    "crpc": "code of criminal procedure 1973",
+    "cr p c": "code of criminal procedure 1973",
+    "criminal procedure code": "code of criminal procedure 1973",
+    "cpc": "code of civil procedure 1908",
+    "c p c": "code of civil procedure 1908",
+    "civil procedure code": "code of civil procedure 1908",
+    "bns": "bharatiya nyaya sanhita 2023",
+    "bnss": "bharatiya nagarik suraksha sanhita 2023",
+    "bsa": "bharatiya sakshya adhiniyam 2023",
+    "ni act": "negotiable instruments act 1881",
+    "n i act": "negotiable instruments act 1881",
+    "ibc": "insolvency and bankruptcy code 2016",
+    "i b c": "insolvency and bankruptcy code 2016",
+    "ndps act": "narcotic drugs and psychotropic substances act 1985",
+    "pc act": "prevention of corruption act 1988",
+    "evidence act": "indian evidence act 1872",
+    "constitution": "constitution of india",
+    "indian constitution": "constitution of india",
+}
+CASE_WORD_ALIASES = {
+    "vs": "v",
+    "versus": "v",
+    "ltd": "limited",
+    "pvt": "private",
+    "co": "company",
+    "corpn": "corporation",
+    "govt": "government",
+    "cit": "commissioner of income tax",
+    "u p": "uttar pradesh",
+    "m p": "madhya pradesh",
+    "a p": "andhra pradesh",
+    "h p": "himachal pradesh",
+    "nct": "national capital territory",
+}
+LITIGANT_NOISE = re.compile(
+    r"\b(?:m s|messrs|the|and (?:another|others|ors|anr)|ors|anr|etc|"
+    r"since deceased|dead|deceased|through lrs|by lrs|lrs)\b"
+)
+JUDGE_TITLES = re.compile(
+    r"\b(?:hon ble|honble|honourable|hon|the|mr|mrs|ms|dr|justice|chief|cji|j|jj|"
+    r"retd|retired|as his lordship then was|as he then was)\b"
+)
+SECTION_PREFIX = re.compile(
+    r"^\s*(?:u\s*/\s*s\b\.?|sections?\b|secs?\b\.?|ss?\.)\s*", re.I
+)
+YEAR_SUFFIX = re.compile(r"\s(1[89]\d{2}|20\d{2})$")
+
+
+def _words(value: str) -> str:
+    """normalize_key without dropping parenthesised numbers."""
+    value = value.replace("&", " and ")
+    value = re.sub(r"[^a-z0-9]+", " ", value.casefold())
+    return normalize_space(value)
+
+
+def _replace_phrases(value: str, aliases: dict[str, str]) -> str:
+    padded = f" {value} "
+    for phrase, replacement in sorted(aliases.items(), key=lambda item: -len(item[0])):
+        padded = padded.replace(f" {phrase} ", f" {replacement} ")
+    return normalize_space(padded)
+
+
+def statute_key(name: str) -> str:
+    value = _words(re.sub(r"\([^)]*\)", " ", name))
+    value = re.sub(r"^the\s+", "", value)
+    value = re.sub(r"\b(?:act\s+)?no\s+\d+\s+of\s+", "", value)
+    value = STATUTE_ALIASES.get(value, value)
+    year = YEAR_SUFFIX.search(value)
+    if year:
+        base = value[: year.start()]
+        value = f"{STATUTE_ALIASES.get(base, base)} {year.group(1)}"
+        # An alias carries its own year; keep the stated one.
+        value = re.sub(r"(\s\d{4})(\s\d{4})$", r"\2", value)
+    return value
+
+
+def section_key(section: str) -> str:
+    """'s. 10(2)', 'Sec.10 (2)' and 'Section 10(2)' all become '10(2)'."""
+    value = SECTION_PREFIX.sub("", normalize_space(section))
+    value = re.sub(r"\s+(?=[(\[])", "", value)
+    value = re.sub(r"[\[\]]", lambda m: "(" if m.group(0) == "[" else ")", value)
+    return re.sub(r"[^a-z0-9()]+", " ", value.casefold()).strip()
+
+
+def litigant_key(name: str) -> str:
+    value = _words(re.sub(r"\([^)]*\)", " ", name))
+    value = _replace_phrases(value, CASE_WORD_ALIASES)
+    return normalize_space(LITIGANT_NOISE.sub(" ", value))
+
+
+def case_key(name: str) -> str:
+    value = re.sub(r"\([^)]*\)", " ", name)
+    value = re.sub(r"\s+(?:v|vs|versus)\.?\s+", " v ", value, flags=re.I)
+    sides = [litigant_key(side) for side in re.split(r"\s+v\s+", value)]
+    return " v ".join(side for side in sides if side)
+
+
+def judge_key(name: str) -> str:
+    value = JUDGE_TITLES.sub(" ", _words(name))
+    # Spacing between initials varies ("S.R. Das", "S. R. Das", "SR Das") and
+    # letter-spaced signatures lose all spaces, so compare without spaces.
+    return value.replace(" ", "")
+
+
+def court_key(name: str) -> str:
+    value = re.sub(r"^the\s+", "", _words(name))
+    return "supreme court of india" if value == "supreme court" else value
+
+
+def canonical_key(node_type: str, label: str) -> str:
+    """Matching key for a node; the display label is kept separately."""
+    canonicalisers = {
+        "STATUTE": statute_key,
+        "CASE": case_key,
+        "PARTY": litigant_key,
+        "JUDGE": judge_key,
+        "COURT": court_key,
+    }
+    canonicaliser = canonicalisers.get(node_type)
+    key = canonicaliser(label) if canonicaliser else ""
+    return key or normalize_key(label)
+
+
+CITATION_PATTERNS = [
+    # 2025 INSC 174
+    (re.compile(r"\b((?:19|20)\d{2})\s+INSC\s+(\d+)\b", re.I), "insc:{0}:{1}"),
+    # (2019) 5 SCC 1, 2019 (5) SCC 1, (2019) 5 SCC (Cri) 1 is left out on purpose
+    (
+        re.compile(r"\(?((?:19|20)\d{2})\)?\s*\(?(\d{1,2})\)?\s+SCC\s+(\d+)\b", re.I),
+        "scc:{0}:{1}:{2}",
+    ),
+    # [1955] 1 SCR 829, 1955 SCR (1) 829
+    (
+        re.compile(r"\[?((?:19|20)\d{2})\]?\s*\(?(\d{1,2})\)?\s+SCR\s+(\d+)\b", re.I),
+        "scr:{0}:{1}:{2}",
+    ),
+    (
+        re.compile(r"\b((?:19|20)\d{2})\s+SCR\s*\((\d{1,2})\)\s*(\d+)\b", re.I),
+        "scr:{0}:{1}:{2}",
+    ),
+    # AIR 1955 SC 352, 1955 AIR 352
+    (re.compile(r"\bAIR\s+((?:19|20)\d{2})\s+SC\s+(\d+)\b", re.I), "air:{0}:sc:{1}"),
+    (re.compile(r"\b((?:19|20)\d{2})\s+AIR\s+(\d+)\b", re.I), "air:{0}:sc:{1}"),
+]
+
+
+def citation_keys(citation: str) -> list[str]:
+    """Reporter-independent keys for the citations in a string.
+
+    "(2019) 5 SCC 1" -> "scc:2019:5:1"; "2025 INSC 174" -> "insc:2025:174".
+    Unrecognised formats give no key, so they never cause a false match.
+    """
+    keys: list[str] = []
+    for pattern, template in CITATION_PATTERNS:
+        for match in pattern.finditer(citation):
+            key = template.format(*(int(group) if group.isdigit() else group for group in match.groups()))
+            if key not in keys:
+                keys.append(key)
+    return keys
+
+
+def case_match_keys(name: str, citations: list[str]) -> list[str]:
+    """Keys under which a CASE node can be matched across judgments."""
+    keys = [key for citation in citations for key in citation_keys(citation)]
+    name_key = case_key(name)
+    if name_key:
+        keys.append(f"name:{name_key}")
+    return list(dict.fromkeys(keys))
+
+
+def resolve_statute_keys(names: list[str]) -> dict[str, str]:
+    """Give yearless statute names the year used elsewhere in the judgment.
+
+    "Income Tax Act" becomes "income tax act 1961" when the judgment also cites
+    "Income-tax Act, 1961" and no other year for that Act.
+    """
+    keys = {name: statute_key(name) for name in names}
+    years: dict[str, set[str]] = {}
+    for key in keys.values():
+        match = YEAR_SUFFIX.search(key)
+        if match:
+            years.setdefault(key[: match.start()], set()).add(match.group(1))
+    for name, key in keys.items():
+        if not YEAR_SUFFIX.search(key) and len(years.get(key, ())) == 1:
+            keys[name] = f"{key} {next(iter(years[key]))}"
+    return keys
+
+
 class GraphBuilder:
     def __init__(self) -> None:
         self.nodes: dict[str, dict[str, Any]] = {}
@@ -749,8 +1407,9 @@ class GraphBuilder:
         node_type: str,
         label: str,
         properties: dict[str, Any] | None = None,
+        key: str | None = None,
     ) -> str:
-        key = f"{node_type}:{normalize_key(label)}"
+        key = f"{node_type}:{key or canonical_key(node_type, label)}"
         node_id = hashlib.sha256(key.encode("utf-8")).hexdigest()[:20]
         node = self.nodes.setdefault(
             node_id,
@@ -758,6 +1417,10 @@ class GraphBuilder:
         )
         if properties:
             for name, value in properties.items():
+                if name == "is_current_case" and node.get(name):
+                    continue  # a citation of the current case must not demote it
+                if name == "match_keys" and node.get(name):
+                    value = list(dict.fromkeys(node[name] + value))
                 if value not in (None, "", []):
                     node[name] = value
         return node_id
@@ -793,13 +1456,17 @@ def build_graph(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     graph = GraphBuilder()
     case = record["case"]
+    current_keys = case_match_keys(case["name"], case["citations"])
     case_id = graph.add_node(
         "CASE",
         case["name"],
         {
+            "match_keys": current_keys,
             "citations": case["citations"],
             "date": case["date"],
             "is_current_case": True,
+            "header_author": case.get("header_author", ""),
+            "header_judges": case.get("header_judges", []),
         },
     )
 
@@ -848,10 +1515,19 @@ def build_graph(
             )
 
     for cited in record["cited_cases"]:
+        cited_keys = case_match_keys(cited["name"], [cited.get("citation", "")])
+        # A reporter citation identifies a case better than its name, so it is
+        # the node key when present; match_keys lets the importer join this
+        # node to the cited judgment once that judgment is uploaded.
         cited_id = graph.add_node(
             "CASE",
             cited["name"],
-            {"citation": cited.get("citation", ""), "is_current_case": False},
+            {
+                "citation": cited.get("citation", ""),
+                "is_current_case": False,
+                "match_keys": cited_keys,
+            },
+            key=cited_keys[0] if cited_keys and not cited_keys[0].startswith("name:") else None,
         )
         treatment = cited.get("treatment", "CITES")
         if treatment not in TREATMENTS:
@@ -862,11 +1538,17 @@ def build_graph(
             treatment,
             cited["evidence"],
             cited["page"],
-            {"proposition": cited.get("proposition", "")},
+            {
+                "proposition": cited.get("proposition", ""),
+                "treatment_source": cited.get("treatment_source", ""),
+                "llm_treatment": cited.get("llm_treatment", ""),
+            },
         )
 
+    statute_keys = resolve_statute_keys([statute["name"] for statute in record["statutes"]])
     for statute in record["statutes"]:
-        statute_id = graph.add_node("STATUTE", statute["name"])
+        statute_key_value = statute_keys[statute["name"]]
+        statute_id = graph.add_node("STATUTE", statute["name"], key=statute_key_value)
         treatment = statute.get("treatment", "MENTIONS")
         if treatment not in STATUTE_TREATMENTS:
             treatment = "MENTIONS"
@@ -880,7 +1562,10 @@ def build_graph(
         for section in statute.get("sections", []):
             section_label = f"{section} of {statute['name']}"
             section_id = graph.add_node(
-                "SECTION", section_label, {"section": section}
+                "SECTION",
+                section_label,
+                {"section": section},
+                key=f"{section_key(section)}|{statute_key_value}",
             )
             graph.add_edge(section_id, statute_id, "PART_OF")
             graph.add_edge(
@@ -934,6 +1619,8 @@ def create_knowledge_graph(
 
     merged = merge_extractions(raw_results)
     record, validation = validate_extraction(merged, pages, header)
+    if not record["case"]["name"]:
+        record["case"]["name"] = normalize_space(pdf_path.stem.replace("_", " "))
     nodes, edges = build_graph(record)
 
     output = {

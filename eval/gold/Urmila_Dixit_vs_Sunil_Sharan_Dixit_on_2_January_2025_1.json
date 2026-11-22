@@ -1,0 +1,75 @@
+{
+  "source_pdf": "Urmila_Dixit_vs_Sunil_Sharan_Dixit_on_2_January_2025_1.PDF",
+  "case": {
+    "court": "Supreme Court of India",
+    "date": "2025-01-02",
+    "citations": [
+      "2025 INSC 20"
+    ],
+    "judges": [
+      "Sanjay Karol",
+      "C.T. Ravikumar"
+    ],
+    "author": "Sanjay Karol"
+  },
+  "cited_cases": [
+    {
+      "name": "Brahmpal v. National Insurance Company",
+      "citation": "(2021) 6 SCC 512",
+      "treatment": "RELIES_ON"
+    },
+    {
+      "name": "K.H. Nazar v. Mathew K. Jacob",
+      "citation": "(2020) 14 SCC 126",
+      "treatment": "RELIES_ON"
+    },
+    {
+      "name": "Kozyflex Mattresses (P) Ltd. v. SBI General Insurance Co. Ltd.",
+      "citation": "(2024) 7 SCC 140",
+      "treatment": "RELIES_ON"
+    },
+    {
+      "name": "X2 v. State (NCT of Delhi)",
+      "citation": "(2023) 9 SCC 433",
+      "treatment": "RELIES_ON"
+    },
+    {
+      "name": "S. Vanitha v. Deputy Commissioner, Bengaluru Urban District",
+      "citation": "(2021) 15 SCC 730",
+      "treatment": "RELIES_ON"
+    },
+    {
+      "name": "Vijaya Manohar Arbat v. Kashirao Rajaram Sawai",
+      "citation": "(1987) 2 SCC 278",
+      "treatment": "RELIES_ON"
+    },
+    {
+      "name": "Badshah v. Urmila Badshah Godse",
+      "citation": "(2014) 1 SCC 188",
+      "treatment": "RELIES_ON"
+    },
+    {
+      "name": "Rajnesh v. Neha",
+      "citation": "(2021) 2 SCC 324",
+      "treatment": "REFERRED_TO"
+    },
+    {
+      "name": "Ashwani Kumar v. Union of India",
+      "citation": "(2019) 2 SCC 636",
+      "treatment": "REFERRED_TO"
+    },
+    {
+      "name": "Sudesh Chhikara v. Ramti Devi",
+      "citation": "2022 SCC OnLine SC 1684",
+      "treatment": "DISTINGUISHES"
+    }
+  ],
+  "statutes": [
+    {
+      "name": "Maintenance and Welfare of Parents and Senior Citizens Act, 2007",
+      "sections": [
+        "23"
+      ]
+    }
+  ]
+}
