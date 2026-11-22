@@ -1,0 +1,48 @@
+{
+  "source_pdf": "Hare_Krushna_Mahanta_vs_Himadri_Sahu_on_7_February_2025_1.PDF",
+  "case": {
+    "court": "Supreme Court of India",
+    "date": "2025-02-07",
+    "citations": [
+      "2025 INSC 165"
+    ],
+    "judges": [
+      "Sanjay Karol",
+      "Prashant Kumar Mishra"
+    ],
+    "author": "Sanjay Karol"
+  },
+  "cited_cases": [
+    {
+      "name": "Meena Devi v. Nunu Chand Mahto",
+      "citation": "",
+      "treatment": "RELIES_ON"
+    },
+    {
+      "name": "National Insurance Co. Ltd. v. Pranay Sethi",
+      "citation": "(2017) 16 SCC 680",
+      "treatment": "APPLIES"
+    },
+    {
+      "name": "Kajal v. Jagdish Chand",
+      "citation": "(2020) 4 SCC 413",
+      "treatment": "APPLIES"
+    },
+    {
+      "name": "Sidram v. Divisional Manager, United India Insurance Co. Ltd.",
+      "citation": "(2023) 3 SCC 439",
+      "treatment": "APPLIES"
+    },
+    {
+      "name": "K.S. Muralidhar v. R. Subbulakshmi",
+      "citation": "",
+      "treatment": "APPLIES"
+    }
+  ],
+  "statutes": [
+    {
+      "name": "Motor Vehicles Act, 1988",
+      "sections": []
+    }
+  ]
+}

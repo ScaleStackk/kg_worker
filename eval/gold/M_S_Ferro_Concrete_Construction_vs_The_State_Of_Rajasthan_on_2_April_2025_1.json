@@ -1,0 +1,83 @@
+{
+  "source_pdf": "M_S_Ferro_Concrete_Construction_vs_The_State_Of_Rajasthan_on_2_April_2025_1.PDF",
+  "case": {
+    "court": "Supreme Court of India",
+    "date": "2025-04-02",
+    "citations": [
+      "2025 INSC 429"
+    ],
+    "judges": [
+      "Pamidighantam Sri Narasimha",
+      "Joymalya Bagchi"
+    ],
+    "author": "Pamidighantam Sri Narasimha"
+  },
+  "cited_cases": [
+    {
+      "name": "Reliance Cellulose Products Ltd. v. ONGC",
+      "citation": "(2018) 9 SCC 266",
+      "treatment": "FOLLOWS"
+    },
+    {
+      "name": "Pam Developments Private Limited v. State of West Bengal",
+      "citation": "(2024) 10 SCC 715",
+      "treatment": "RELIES_ON"
+    },
+    {
+      "name": "Secretary, Irrigation Department, Government of Orissa v. G.C. Roy",
+      "citation": "(1992) 1 SCC 508",
+      "treatment": "REFERRED_TO"
+    },
+    {
+      "name": "Executive Engineer, Dhenkanal Minor Irrigation Division v. N.C. Budharaj",
+      "citation": "(2001) 2 SCC 721",
+      "treatment": "REFERRED_TO"
+    },
+    {
+      "name": "Board of Trustees for the Port of Calcutta v. Engineers-De-Space-Age",
+      "citation": "(1996) 1 SCC 516",
+      "treatment": "REFERRED_TO"
+    },
+    {
+      "name": "Union of India v. Ambica Construction",
+      "citation": "(2016) 6 SCC 36",
+      "treatment": "RELIES_ON"
+    },
+    {
+      "name": "Madnani Construction Corpn. (P) Ltd. v. Union of India",
+      "citation": "(2010) 1 SCC 549",
+      "treatment": "REFERRED_TO"
+    },
+    {
+      "name": "Sayeed Ahmed & Co. v. State of U.P.",
+      "citation": "",
+      "treatment": "REFERRED_TO"
+    },
+    {
+      "name": "Tehri Hydro Development Corpn. Ltd. v. Jai Prakash Associates Ltd.",
+      "citation": "(2012) 12 SCC 10",
+      "treatment": "REFERRED_TO"
+    },
+    {
+      "name": "Hindustan Construction Co. Ltd. v. State of J&K",
+      "citation": "",
+      "treatment": "REFERRED_TO"
+    },
+    {
+      "name": "M.B. Patel & Co. v. ONGC",
+      "citation": "(2008) 8 SCC 251",
+      "treatment": "REFERRED_TO"
+    },
+    {
+      "name": "Union of India v. Krafters Engg. & Leasing (P) Ltd.",
+      "citation": "(2011) 7 SCC 279",
+      "treatment": "REFERRED_TO"
+    }
+  ],
+  "statutes": [
+    {
+      "name": "Arbitration Act, 1940",
+      "sections": []
+    }
+  ]
+}

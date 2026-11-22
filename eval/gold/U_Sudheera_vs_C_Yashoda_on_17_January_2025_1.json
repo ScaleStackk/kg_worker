@@ -1,0 +1,95 @@
+{
+  "source_pdf": "U_Sudheera_vs_C_Yashoda_on_17_January_2025_1.PDF",
+  "case": {
+    "court": "Supreme Court of India",
+    "date": "2025-01-17",
+    "citations": [
+      "2025 INSC 80"
+    ],
+    "judges": [
+      "J.B. Pardiwala",
+      "R. Mahadevan"
+    ],
+    "author": "R. Mahadevan"
+  },
+  "cited_cases": [
+    {
+      "name": "Ram Phal v. Banarasi",
+      "citation": "(2003) 11 SCC 762",
+      "treatment": "RELIES_ON"
+    },
+    {
+      "name": "Raghavendra Swamy Mutt v. Uttaradi Mutt",
+      "citation": "(2016) 11 SCC 235",
+      "treatment": "RELIES_ON"
+    },
+    {
+      "name": "Bhagyashree Anant Gaonkar v. Narendra @ Nagesh Bharma Holkar",
+      "citation": "(2023) SCC OnLine SC 1236",
+      "treatment": "RELIES_ON"
+    },
+    {
+      "name": "Anathula Sudhakar v. P. Buchi Reddy",
+      "citation": "(2008) 4 SCC 594",
+      "treatment": "REFERRED_TO"
+    },
+    {
+      "name": "Bhimabai Mahadeo Kambekar v. Arthur Import & Export Co.",
+      "citation": "",
+      "treatment": "REFERRED_TO"
+    },
+    {
+      "name": "Manohar Lal Chopra v. Rai Bahadur Rao Raja Seth Hiralal",
+      "citation": "AIR 1962 SC 527",
+      "treatment": "RELIES_ON"
+    },
+    {
+      "name": "Vareed Jacob v. Sosamma Geeverghese",
+      "citation": "(2004) 6 SCC 378",
+      "treatment": "REFERRED_TO"
+    },
+    {
+      "name": "Vrajesh Anandrao Kerkar v. Durgesh Tulsidas Kerkar",
+      "citation": "2024 SCC OnLine Bom 472",
+      "treatment": "REFERRED_TO"
+    },
+    {
+      "name": "Santosh Hazari v. Purushottam Tiwari",
+      "citation": "(2001) 3 SCC 179",
+      "treatment": "RELIES_ON"
+    },
+    {
+      "name": "Roop Singh v. Ram Singh",
+      "citation": "(2000) 3 SCC 708",
+      "treatment": "RELIES_ON"
+    },
+    {
+      "name": "State Bank of India v. S.N. Goyal",
+      "citation": "(2008) 8 SCC 92",
+      "treatment": "RELIES_ON"
+    },
+    {
+      "name": "Municipal Committee, Hoshiarpur v. Punjab SEB",
+      "citation": "(2010) 13 SCC 216",
+      "treatment": "RELIES_ON"
+    },
+    {
+      "name": "Umerkhan v. Bismillabi",
+      "citation": "(2011) 9 SCC 684",
+      "treatment": "RELIES_ON"
+    },
+    {
+      "name": "Hemavathi v. V. Hombegowda",
+      "citation": "2023 INSC 848",
+      "treatment": "RELIES_ON"
+    }
+  ],
+  "statutes": [
+    {
+      "name": "Code of Civil Procedure, 1908",
+      "sections": [
+        "100"
+      ]
+    }
+  ]
+}
