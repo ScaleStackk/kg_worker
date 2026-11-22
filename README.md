@@ -97,6 +97,42 @@ validated graph into Neo4j, and publishes completion or failure events. Run it
 by overriding the image entrypoint with `python /app/queue_worker.py` and set
 `KAFKA_BROKERS`, `AWS_REGION`, `NEO4J_URL`, `NEO4J_PASSWORD`, and `OLLAMA_URL`.
 
+### Failed-job artifacts and retention
+
+Successful job directories are removed after import unless `KEEP_JOB_FILES=true`
+is set. Failed jobs keep their local PDF and intermediate output so the last
+attempt can be inspected. The worker removes job directories older than
+`FAILED_JOB_RETENTION_DAYS` at startup; the default is 7 days and the value must
+be at least 1. This retention also bounds artifacts kept with
+`KEEP_JOB_FILES=true`. Ensure `WORKER_DATA_DIR` is on a volume with enough space
+for up to seven days of failed-job artifacts, and restrict access to that volume
+because it can contain judgment PDFs and raw model output.
+
+Failure events include the original `judgment.uploaded` event as `sourceEvent`
+(S3 location and document metadata only; the PDF itself is not placed on Kafka).
+The worker log records the failure topic partition and offset for replay.
+To replay exactly one KG failure, identify its `processing.failed` partition and
+offset from your Kafka tooling, then run a dry run in the worker container:
+
+```bash
+docker compose exec kg-worker python /app/replay_failed.py \
+  --partition 0 --offset 123
+```
+
+Review the printed document ID and replay source. Add `--execute` to publish a
+new `judgment.uploaded` event:
+
+```bash
+docker compose exec kg-worker python /app/replay_failed.py \
+  --partition 0 --offset 123 --execute
+```
+
+The replay uses the original S3 object and a fresh event ID; it does not alter or
+delete the failure record. Re-importing is scoped to the document ID, so the KG
+importer replaces that document's graph while leaving other judgments intact.
+This replays only the KG consumer path; the independent embedding worker is not
+triggered.
+
 ## Tests
 
 Unit tests cover the deterministic parts of the extractor and mock the Ollama

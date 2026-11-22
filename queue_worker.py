@@ -21,6 +21,7 @@ from kafka import KafkaConsumer, KafkaProducer
 
 DOCUMENT_ID = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 DATA_ROOT = Path(os.environ.get("WORKER_DATA_DIR", "/data/jobs"))
+ARTIFACT_RETENTION_DAYS = int(os.environ.get("FAILED_JOB_RETENTION_DAYS", "7"))
 
 
 def required(name: str) -> str:
@@ -50,8 +51,37 @@ def event_details(event: dict[str, Any]) -> tuple[str, str, str, str]:
     return document_id, filename, bucket, key
 
 
-def publish(producer: KafkaProducer, topic: str, document_id: str, payload: dict[str, Any]) -> None:
-    producer.send(topic, key=document_id, value=payload).get(timeout=30)
+def publish(producer: KafkaProducer, topic: str, document_id: str, payload: dict[str, Any]) -> Any:
+    return producer.send(topic, key=document_id, value=payload).get(timeout=30)
+
+
+def prune_expired_jobs(root: Path, retention_days: int, now_timestamp: float | None = None) -> int:
+    """Remove stale job directories without following links outside the job root."""
+    if retention_days < 1:
+        raise ValueError("FAILED_JOB_RETENTION_DAYS must be at least 1")
+    if not root.exists():
+        return 0
+    cutoff = (time.time() if now_timestamp is None else now_timestamp) - retention_days * 86400
+    removed = 0
+    for job_dir in root.iterdir():
+        if job_dir.is_symlink() or not job_dir.is_dir() or not DOCUMENT_ID.fullmatch(job_dir.name):
+            continue
+        marker = job_dir / "failure.json"
+        timestamp_path = marker if marker.is_file() else job_dir
+        if timestamp_path.stat().st_mtime < cutoff:
+            shutil.rmtree(job_dir)
+            removed += 1
+    return removed
+
+
+def mark_job_failed(document_id: str, error: Exception) -> None:
+    job_dir = DATA_ROOT / document_id
+    if not job_dir.is_dir():
+        return
+    (job_dir / "failure.json").write_text(
+        json.dumps({"documentId": document_id, "failedAt": now(), "error": str(error)[:1000]}),
+        encoding="utf-8",
+    )
 
 
 def process(event: dict[str, Any], s3: Any) -> tuple[str, dict[str, Any]]:
@@ -95,6 +125,8 @@ def process(event: dict[str, Any], s3: Any) -> tuple[str, dict[str, Any]]:
 
 
 def main() -> None:
+    if ARTIFACT_RETENTION_DAYS < 1:
+        raise ValueError("FAILED_JOB_RETENTION_DAYS must be at least 1")
     brokers = [item.strip() for item in required("KAFKA_BROKERS").split(",") if item.strip()]
     topic = os.environ.get("KAFKA_UPLOAD_TOPIC", "judgment.uploaded")
     group = os.environ.get("KAFKA_CONSUMER_GROUP", "questacase-kg-workers")
@@ -119,6 +151,9 @@ def main() -> None:
     )
     s3 = boto3.client("s3", region_name=os.environ.get("AWS_REGION"))
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
+    expired_jobs = prune_expired_jobs(DATA_ROOT, ARTIFACT_RETENTION_DAYS)
+    if expired_jobs:
+        print(f"Removed {expired_jobs} expired job artifact director(y/ies)", flush=True)
     print(f"KG worker consuming {topic} as {group}", flush=True)
 
     for message in consumer:
@@ -154,7 +189,8 @@ def main() -> None:
                     time.sleep(min(30, 2**attempt))
 
         if error is not None:
-            publish(
+            mark_job_failed(document_id, error)
+            failure_record = publish(
                 producer,
                 failed_topic,
                 document_id,
@@ -166,7 +202,13 @@ def main() -> None:
                     "documentId": document_id,
                     "worker": "kg",
                     "error": str(error)[:1000],
+                    "sourceEvent": event,
                 },
+            )
+            print(
+                f"Published processing.failed for {document_id} at "
+                f"{failed_topic}[{failure_record.partition}] offset {failure_record.offset}",
+                flush=True,
             )
         consumer.commit()
 

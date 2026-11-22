@@ -13,7 +13,7 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir --requirement requirements.txt
 
-COPY kg_create.py import_neo4j.py container_entrypoint.py queue_worker.py ./
+COPY kg_create.py import_neo4j.py container_entrypoint.py queue_worker.py replay_failed.py ./
 
 WORKDIR /data
 VOLUME ["/data"]
